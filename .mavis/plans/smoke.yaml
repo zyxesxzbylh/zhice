@@ -1,0 +1,16 @@
+version: 1
+plan:
+  name: "minimal smoke"
+  max_concurrency: 1
+  max_consecutive_failures: 2
+  max_cycles: 2
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: smoke
+    title: "smoke test"
+    prompt: "echo hello"
+    assigned_to: coder
+    max_retries: 1

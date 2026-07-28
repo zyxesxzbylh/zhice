@@ -1,0 +1,21 @@
+version: 1
+plan:
+  name: "backslash test"
+  max_concurrency: 1
+  max_consecutive_failures: 1
+  max_cycles: 1
+  auto_reject_retries: 0
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: t1
+    title: "t1"
+    assigned_to: coder
+    max_retries: 1
+    prompt: |
+      Path test: D:\工作管理\flowsync
+      Path with code: `D:\工作管理\flowsync`
+    verified_by: verifier
+    verify_prompt: |
+      Test: D:\工作管理\flowsync

@@ -1,0 +1,31 @@
+version: 1
+plan:
+  name: "test3"
+  max_concurrency: 1
+  max_consecutive_failures: 2
+  max_cycles: 2
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: t1
+    title: "t1"
+    prompt: |
+      Multi-line
+      prompt content
+      with various chars: %5 % >= 90 < 100 etc.
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      Multi-line
+      verify prompt
+    max_retries: 1
+  - id: t2
+    title: "t2"
+    role: verify-as-task
+    prompt: "verify gate"
+    assigned_to: verifier
+    max_retries: 1
+    verify_skip_reason: "this task IS the gate"
+    depends_on: [t1]

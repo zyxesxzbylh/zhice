@@ -1,0 +1,424 @@
+version: 1
+plan:
+  name: "司辰 (FlowSync) 全面优化"
+  max_concurrency: 6
+  max_consecutive_failures: 2
+  max_cycles: 12
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  # ============================================================
+  # 1) CONTRACT — shared foundations so 4 parallel streams don't collide
+  # ============================================================
+  - id: foundation-contract
+    title: "抽出共享基础（设计 token / helper / 键盘 hook / UI primitives）"
+    assigned_to: coder
+    max_retries: 1
+    prompt: |
+      项目根目录:`D:\工作管理\flowsync`。这是 Next.js 15 + React 19 + Prisma + Tailwind v4 + Zustand + Electron 应用,代号「司辰 / FlowSync」,任务管理工具。当前 node_modules 已安装,不要重新安装。
+
+      **为什么有这个任务**:后面有 4 个并行流 (UI / Features / Perf / UX+Compat),必须先抽出共享基础,避免他们争改同一文件而出冲突。
+
+      **你的产出**(必须新建/扩展下列文件,且只在这些文件里改):
+
+      1. `src/lib/theme.ts` — 在现有基础上扩展语义 token:
+         - 新增 `motion` 段:`duration = { fast: 120, base: 200, slow: 320 }`,`easing = { standard: 'cubic-bezier(0.4,0,0.2,1)', emphasized: 'cubic-bezier(0.2,0,0,1)' }`
+         - 新增 `priority` 段(`urgent | high | medium | low`),每个含 `{ bg, border, text, accent }`(颜色自己选,统一灰阶 + 红/橙/绿/蓝点缀,跟现有"黑白灰主色 + 一点状态色"风格一致)
+         - 新增 `tagPalette = [...]`(8 种 tag 颜色,深色背景 + 白字)
+         - 保留现有导出
+         - **TypeScript 必须严格**:`export const` + `as const`
+
+      2. `src/lib/task-helpers.ts` (新) — 统一收纳散在多处的工具:
+         - 从 `src/app/tasks/page.tsx` 第 47-89 行抽出:`timeToHours`、`formatDueDate`、`hashStringToColor`、`getDateKey`、`getTaskColor`(只导出签名,实现按现有逻辑)
+         - 把 `src/components/TaskCard.tsx` 第 26-58 行的 `formatDueDate` / `getTaskColor` 替换成从 `task-helpers` 导入
+         - 把 `src/components/TaskTree.tsx` 里如果有同名函数,同样替换(读后按需改)
+         - **重要**:不要改 `tasks/page.tsx` 里这些函数的调用点,先把函数搬过来,导出同名,后续 Perf 流会清理调用点
+         - 加 JSDoc 注释,标注"由 foundation-contract 任务迁移"
+
+      3. `src/lib/keyboard.ts` (新) — 全局快捷键 hook:
+         - `useShortcut(key: string, handler: (e: KeyboardEvent) => void, options?: { scope?: string; preventDefault?: boolean }): void`
+         - `useShortcutScope(scope: string): { active: boolean; push: boolean }` — 用于嵌套 modal/dialog 的"作用域优先"
+         - 内置:`Cmd/Ctrl+K` 监听,触发自定义事件 `flowsync:command-palette-open`
+         - 内置:`?` (Shift+/) 触发 `flowsync:shortcuts-help-open`(除非用户在 input/textarea/contenteditable)
+         - SSR 安全:全部 typeof window 检查
+
+      4. `src/lib/compat.ts` (新) — 浏览器特性检测:
+         - `isSafari()`,`isFirefox()`,`isChrome()`,`isElectron()`,`isMobile()`,`isPWA()`
+         - `supportsBackdropFilter()`,`supportsCSSGrid()`,`supportsIntl()`(返回 boolean)
+         - 全部用 typeof navigator / typeof window 检查,SSR 安全
+
+      5. `src/lib/types.ts` — 扩展类型(向后兼容,不要删任何字段):
+         - 新增 `Tag`,`TaskTag`(对应 prisma)
+         - 新增 `ReminderState = 'none' | 'set' | 'sent' | 'snoozed'`
+         - 扩展 `TaskPriority = 'urgent' | 'high' | 'medium' | 'low'`(注意:DB 是字符串,前端也要用字符串,跟 `lib/theme.ts` 的 priority 段对齐)
+         - 在 `Task` 接口里加 `tags?: Tag[]`、 `reminderAt?: string | null`、`recurrenceRule?: string | null`、`estimatedMinutes?: number | null`(都用 optional,不破坏现有)
+
+      6. `src/components/ui/` (新目录) — 共享原子组件,每个文件独立:
+         - `Button.tsx` — variants: primary / secondary / ghost / danger;sizes: sm / md;支持 `loading` 状态(简单 spinner);Tailwind class
+         - `IconButton.tsx` — 带 hover/focus/active 反馈的方形按钮,接受 `aria-label`
+         - `Modal.tsx` — 受控 `open`,Esc 关闭,点击遮罩关闭(可选),`aria-modal` + `role="dialog"` + focus trap(自己写轻量,不要引外部库)
+         - `Tag.tsx` — 圆角小色块,接受 `color` / `children` / `onRemove?`
+         - `EmptyState.tsx` — 占位组件,接受 `icon?` / `title` / `description` / `action?`
+         - `index.ts` — barrel export 以上所有inko
+
+      **约束**:
+      - TypeScript 严格模式,任何 `any` 必须有注释说明
+      - 不引新依赖,只用 React 19 + Tailwind v4 + 现有工具
+      - 不动 `tasks/page.tsx` 的逻辑(那是 Perf 流的事)
+      - 不动任何 API route(`src/app/api/**`)
+      - 不动 Prisma schema
+      - 所有动画在 `globals.css` 已经存在的 keyframes 范围里挑,别新增
+
+      **完工标志**:
+      - `cd "D:\工作管理\flowsync"; npx tsc --noEmit` 通过
+      - `npm run build` 通过
+      - 在 `deliverables.md` 里列:每个新建/修改的文件路径、每个导出符号的签名、迁移了哪些老函数到 `task-helpers`
+    verified_by: verifier
+    verify_prompt: |
+      独立核验基础任务:
+      1. 在 `D:\工作管理\flowsync` 跑 `npx tsc --noEmit` 必须 0 错误
+      2. 跑 `npm run build` 必须 0 错误(看到 "Compiled successfully" 或同等成功消息)
+      3. 检查 `src/lib/theme.ts` 必须导出 `motion`/`priority`/`tagPalette`(类型 + 值)
+      4. 检查 `src/lib/task-helpers.ts` 必须导出 `timeToHours`/`formatDueDate`/`hashStringToColor`/`getDateKey`/`getTaskColor`
+      5. `src/lib/keyboard.ts` 必须导出 `useShortcut`、`useShortcutScope`,并在模块作用域触发自定义事件 `flowsync:command-palette-open`(用字符串监听器测试)
+      6. `src/lib/compat.ts` 必须导出 `isSafari`/`isFirefox`/`isChrome`/`isElectron`
+      7. `src/lib/types.ts` 必须导出 `Tag`、`ReminderState`,`TaskPriority` 必须是 4 值联合
+      8. `src/components/ui/` 必须有 Button/IconButton/Modal/Tag/EmptyState/index 六个文件,index.ts barrel export 全部
+      9. 任何 worker 自己新增的依赖(改 package.json) → FAIL
+      10. `tasks/page.tsx` 逻辑没被改(可以 diff 一下)
+      PASS/FAIL 标准:以上 10 条全过才能 PASS,任一失败给出具体的命令输出或缺失文件路径。
+    output: "至少 6 个新/扩展文件: src/lib/{theme,task-helpers,keyboard,compat,types}.ts + src/components/ui/ 目录"
+
+  # ============================================================
+  # 2) UI / VISUAL HIERARCHY stream
+  # ============================================================
+  - id: stream-ui-design
+    title: "界面设计优化 — 视觉层次、信息布局、交互反馈"
+    assigned_to: coder
+    max_retries: 2
+    depends_on: [foundation-contract]
+    verified_by: verifier
+    prompt: |
+      项目根:`D:\工作管理\flowsync`。依赖:foundation-contract 已完成。
+      你拥有 UI/视觉层次这一条流,只动下列文件:
+      - `src/components/SidebarNav.tsx`(改)
+      - `src/components/MobileNav.tsx`(改)
+      - `src/components/EmptyState.tsx`(改成新版本,基于 foundation-contract 创建的 ui/EmptyState)
+      - `src/components/Skeleton.tsx`(改)
+      - `src/app/globals.css`(清理 + 新增少量工具类)
+      - `src/components/NotificationBell.tsx`(改视觉层,不动逻辑)
+      - `src/app/dashboard/page.tsx`(只调视觉结构)
+      - `src/app/projects/page.tsx`(只调视觉)
+      - `src/app/templates/page.tsx`(只调视觉)
+      - `src/app/schedule/page.tsx`(只调视觉)
+      - `src/app/settings/page.tsx`(只调视觉)
+
+      **目标**:
+
+      1. **SidebarNav 视觉层次升级**:
+         - 顶部 logo 区增加版本号小字(v0.5.0,跟 package.json 对齐)
+         - "核心功能" / "系统设置" 两个分组,组标题用 `text-[10px] uppercase tracking-wider text-gray-400`
+         - 当前激活项:加左侧 2px 强调色条 + `bg-gray-50`(替换现在的 `bg-gray-100`,更轻)
+         - hover 态:用 `hover:bg-gray-50`,加 `transition-colors duration-150`
+         - 底部日期/搜索/铃铛区保持但视觉更紧凑:用 `bg-gray-50/50` 分隔
+
+      2. **EmptyState 统一**:
+         - 使用 foundation-contract 创建的 `components/ui/EmptyState`
+         - 保留现有组件的 API,内部改用新组件
+         - 默认图标:文件 / 庆祝 / 搜索 三种 preset
+
+      3. **Skeleton 主题统一**:
+         - 用 `bg-monochrome-100`(globals.css 已存在)+ `animate-shimmer`
+         - 不要用 `animate-pulse`,跟项目其它动画风格统一使用 `shimmer`
+
+      4. **globals.css 清理**:
+         - 删掉 `.bg-monochrome-*` / `.text-monochrome-*` / `.bg-silver-*` 等只在个别组件用的散装类(这些没人在用,grep 确认)
+         - 新增工具类:`hover-lift`(已有,保留)、`focus-ring`(已有,保留)
+         - 不改 keyframes
+         - 不改 base
+
+      5. **NotificationBell 视觉**:不动逻辑,只改 wrapper 让它用 `IconButton` 来自 ui/
+
+      6. **dashboard / projects / templates / schedule / settings 页**:
+         - 统一 `h1` 字号为 `text-2xl font-bold tracking-tight`(原来各处不一)
+         - 卡片用 `bg-white border border-gray-200 rounded-xl shadow-sm`(现在散落不一致)
+         - 间距统一:`p-6` 卡片内 padding,`space-y-6` 卡片间距
+         - 不改交互逻辑,不改数据流;只调结构/类名
+
+      **约束**:
+      - 不要改 `src/app/tasks/page.tsx`(那是 Perf 流)
+      - 不要改 `src/lib/*` 任何(只读)
+      - 不动 Prisma
+      - 不动 `src/components/TaskCard.tsx`(Features 流改)
+      - 不动 `src/components/ui/*` 内部实现(它们已经稳定)
+      - 不引新依赖
+
+      **完工标志**:
+      - `cd "D:\工作管理\flowsync"; npx tsc --noEmit` 通过
+      - `npm run build` 通过
+      - 在 `deliverables.md` 列出修改的文件清单和视觉效果概述
+    verify_prompt: |
+      独立核验 UI 流:
+      1. `npx tsc --noEmit` 必须 0 错误
+      2. `npm run build` 必须通过
+      3. `globals.css` 不再有 `.bg-monochrome-*` / `.text-monochrome-*` / `.bg-silver-*` 字样(这些已删)
+      4. `SidebarNav.tsx` 必须仍导出默认组件,签名不变
+      5. `EmptyState.tsx` 必须从 `@/components/ui` 导入
+      6. `MobileNav.tsx` / `Skeleton.tsx` 视觉调整后仍可用,不能编译失败
+      7. tasks page 未被此流改动(`git diff` 等价:用 mtime 比对)
+      8. 无 package.json 改动
+      9. 5 个 page 文件(h1 字号 / 卡片样式 / 间距)至少 3 个有结构性调整
+      10. 视觉一致性:SidebarNav 的 active 项现在应该是 `bg-gray-50`,不是 `bg-gray-100`
+      全过才 PASS,任一 FAIL 给具体文件路径。
+
+  # ============================================================
+  # 3) FEATURES stream — tags / priority / reminder / batch
+  # ============================================================
+  - id: stream-features
+    title: "功能增强 — 标签 / 优先级 / 提醒 / 批量操作"
+    assigned_to: coder
+    max_retries: 2
+    depends_on: [foundation-contract]
+    verified_by: verifier
+    prompt: |
+      项目根:`D:\工作管理\flowsync`。foundation-contract 已完成,已有共享类型与 helpers。
+      你拥有功能增强这条流,只动 / 新建下列文件:
+
+      **新建组件**:
+      - `src/components/PriorityPicker.tsx` — 下拉/segmented,4 档 urgent/high/medium/low,颜色取 `lib/theme.ts` 的 priority 段,选中后回写任务
+      - `src/components/ReminderDialog.tsx` — 设置 `reminderAt`,提供 "5 分钟后 / 30 分钟后 / 1 小时后 / 今天 18:00 / 自定义" 选项
+      - `src/components/BatchActions.tsx` — 多选工具栏,出现于列表/看板顶部,选中后支持:批量改状态、批量改优先级、批量加 tag、批量删除
+      - `src/components/TagFilter.tsx` — 在任务视图侧边显示所有 tag,点击筛选
+
+      **修改组件**:
+      - `src/components/TaskCard.tsx` — 显示 `tags` 徽章(用 `ui/Tag`),把优先级色条换成 `theme.priority` 配色(替换原 `priority === 1 ? high : ...` 逻辑,改用字符串 priority);加 reminder 图标 + 时间小字
+      - `src/components/TaskTree.tsx` — 同样显示 tags / 优先级 / reminder
+      - `src/components/TagManager.tsx` — 重构,基于 `ui/Tag` + `ui/Modal`,提供创建/删除/重命名 tag,8 色 `tagPalette`
+      - `src/components/TaskSplitModal.tsx` — 加 reminder / priority 段
+      - `src/components/TaskStatusBadge.tsx` — 用 `theme.priority` 的颜色 token
+
+      **修改 API 客户端**:
+      - `src/lib/api.ts` — 添加 `batchUpdateTasks`、`setTaskReminder`、`addTaskTag`、`removeTaskTag`
+
+      **修改 store / context**:
+      - `src/components/TaskContext.tsx` — `updateTask` 已存在,加 `batchUpdateTasks(ids, updates)` 方法;在 fetch 时也取 tags(查 `/api/tags`)
+      - 不要改 polling 间隔(那是 Perf 流)
+
+      **修改任务视图**(只读改,不动其他流):
+      - `src/app/tasks/page.tsx` 第 1063-1396 行(KanbanView 函数):加 BatchActions 工具栏、点击任务卡显示 tag 列表
+      - 第 951-1061 行(ListView 函数):同样加 tag 显示 + 批量勾选框
+      - 不改 ScheduleView(留给 Perf 流,会拆)
+
+      **Prisma / 后端 / Electron 都不动**。前端只是接通现有 schema。
+
+      **约束**:
+      - 不引新依赖
+      - 不动 SidebarNav / MobileNav / globals.css / 其它 page(那些是 UI 流)
+      - 不动 TimelineView / GanttView / FloatingView(那些是 Perf 流做 dynamic import)
+      - 类型必须严格,`Task` 的新字段用 optional
+
+      **完工标志**:
+      - `npx tsc --noEmit` 通过
+      - `npm run build` 通过
+      - `deliverables.md` 列出所有新建/修改文件、新组件的 props 签名
+    verify_prompt: |
+      独立核验 Features 流:
+      1. `npx tsc --noEmit` 0 错误
+      2. `npm run build` 通过
+      3. 新文件必须存在:`PriorityPicker.tsx`、`ReminderDialog.tsx`、`BatchActions.tsx`、`TagFilter.tsx`
+      4. `lib/api.ts` 必须新增 `batchUpdateTasks`、`setTaskReminder`、`addTaskTag`、`removeTaskTag` 函数
+      5. `TaskCard.tsx` 不再用 `priority === 1 ? ... : ...` 这种数字判断,改用字符串 priority
+      6. `TaskContext.tsx` 必须新增 `batchUpdateTasks` 方法
+      7. tasks page 第 951-1396 行(ListView + KanbanView)必须有结构变化(多选 checkbox 或批量工具栏)
+      8. TagManager.tsx 必须重构且使用 `ui/Tag` / `ui/Modal`
+      9. 不动 tasks/page.tsx 第 298-948 行(ScheduleView) 和 第 1398-1480 行(TimelineView)
+      10. 无 package.json 改动
+      全过 PASS,否则给具体缺失。
+
+  # ============================================================
+  # 4) PERFORMANCE stream — split tasks page, dynamic imports, memoization
+  # ============================================================
+  - id: stream-performance
+    title: "性能优化 — 拆大文件 / dynamic import / memoize / 搜索防抖"
+    assigned_to: coder
+    max_retries: 2
+    depends_on: [foundation-contract]
+    verified_by: verifier
+    prompt: |
+      项目根:`D:\工作管理\flowsync`。foundation-contract 已完成,helpers 已抽到 `src/lib/task-helpers.ts`。
+
+      你拥有性能优化这条流,只动 / 新建下列文件:
+
+      **拆分 `src/app/tasks/page.tsx`(1839 行,大文件)**:
+
+      新建 `src/app/tasks/_views/` 目录,每个视图一个文件:
+      - `DayView.tsx` — 从原 page.tsx 第 298-562 行 DayView 抽出来,内部接收 props:`tasks`、`tasksByDate`、`tasksWithParent`、`getDateKey` 等必要的引用
+      - `WeekView.tsx` — 第 564-782 行
+      - `MonthView.tsx` — 第 784-887 行
+      - `YearView.tsx` — 第 889-941 行
+      - `ScheduleView.tsx` — 第 943-949 行(薄壳,选 viewMode)
+      - `ListView.tsx` — 第 951-1061 行
+      - `KanbanView.tsx` — 第 1063-1396 行(注意:Features 流会动这个文件的视觉,你来负责拆,确保 Features 流改的是新拆出来的文件)
+      - `TimelineView.tsx` — 第 1398-1478 行(薄壳,代理给 `@/components/TimelineView` 因为 TimelineView 已有外部组件;这里指内联在 page.tsx 里的 TimelineView 函数)
+      - `TaskDetailModal.tsx` — 第 1482-1630 行(注意:Features 流会动 ReminderDialog 部分,你来拆主壳)
+
+      修改 `src/app/tasks/page.tsx`:
+      - 上述函数改成从 `./_views/*` 导入
+      - 把 `timeToHours`、`formatDueDate`、`hashStringToColor`、`getTaskKey`(原名 `getDateKey`)、`getTaskColor`(整段实现)删掉,改从 `@/lib/task-helpers` 导入
+      - 替换所有调用点为新路径下的同名函数udian(注意:`formatDueDate` 的签名保持不变)
+
+      **dynamic imports**(在 `src/app/tasks/page.tsx` 中):
+      - `FloatingView`、`GanttView`、`AIBatchCreateModal`、`AITextToProjectModal`、`DailyWorkSummarizeModal`、`NotificationBell`、`EnhancedStatsCard`、`CommandPalette` (UX 流会新建)— 全部改 `next/dynamic` 的 `dynamic(() => import('...'), { ssr: false, loading: () => <Skeleton ... /> })`
+      - 替换所有静态 import 这些组件的地方只留 type import(`import type`)
+
+      **Memoize**:
+      - `TaskCard` 包 `React.memo`
+      - 所有从 foundation-contract 迁移的纯函数加 memoize(`hashStringToColor` 之类不纯于 project 字符串,不必 memo)
+      - 在 `src/app/tasks/page.tsx` 第 141-160 行 `filteredTasks` 和 `tasksByDate` 的 `useMemo` 依赖列表,加 `selectedDate`(可能漏)
+
+      **搜索防抖**:
+      - 在 `src/app/tasks/page.tsx` 第 96 行 `searchQuery` 状态:加 `useDeferredValue` 包装,或者单独写 `useDebouncedValue` 拿过来(简单版,放在 `src/lib/hooks.ts` 新文件里,导出 `useDebouncedValue`)
+
+      **TaskContext 优化**:
+      - `src/components/TaskContext.tsx` 第 107 行 `setInterval(..., 30000)` 改 `60000`(60s,减少抖动);加 `enabled` flag 让隐藏时不轮询
+      - 不要改其他逻辑
+
+      **next.config.ts**:
+      - 加 `experimental.optimizePackageImports: ['date-fns', 'lucide-react', '@prisma/client']`(注意:项目实际没装 lucide-react,只留 date-fns;最终配置 `experimental: { optimizePackageImports: ['date-fns'], serverActions: { bodySizeLimit: '2mb' } }`)
+      - 注:`output: 'standalone'` 保留(用于 Electron 打包)
+
+      **约束**:
+      - 不动 SidebarNav / MobileNav / globals.css / 其它 page(UI 流)
+      - 不动 TaskCard 内部逻辑(Features 流);TaskCard 可以包 memo,不动 props
+      - 不动 Prisma / API / Electron / package.json
+      - 不引新依赖
+      - 拆分后行数总和应当等于原文件(只是物理位置变了)
+
+      **完工标志**:
+      - `npx tsc --noEmit` 通过
+      - `npm run build` 通过
+      - `tasks/page.tsx` 行数应当从 1839 降到 600 左右(主要是 main 组件)
+      - 8 个 _views/* 文件存在
+      - `deliverables.md` 列出文件前后行数对比
+    verify_prompt: |
+      独立核验 Perf 流:
+      1. `npx tsc --noEmit` 0 错误
+      2. `npm run build` 通过
+      3. `src/app/tasks/_views/` 必须有:ScheduleView、DayView、WeekView、MonthView、YearView、ListView、KanbanView、TimelineView、TaskDetailModal 至少 9 个 tsx
+      4. `src/app/tasks/page.tsx` 行数显著减少(原来 1839 → 现 < 700)
+      5. `src/app/tasks/page.tsx` 不应再定义 `function DayView` / `function WeekView` / `function MonthView` / `function YearView` / `function ScheduleView` / `function ListView` / `function KanbanView` / `function TimelineView`(grep 验证)
+      6. `next.config.ts` 必须有 `optimizePackageImports: ['date-fns']`(或包含)
+      7. TaskContext.tsx 轮询间隔 ≥ 60s(原 30s)
+      8. dynamic imports:下列组件在 tasks/page.tsx 中应当用 `dynamic(() => import(...))`:`FloatingView`、`GanttView`、`AIBatchCreateModal`、`AITextToProjectModal`、`DailyWorkSummarizeModal`、`NotificationBell`、`EnhancedStatsCard`(如果 tasks page 引用了)
+      9. 不动 SidebarNav.tsx / globals.css / api/* 路径
+      10. 无 package.json 改动
+      全过 PASS,否则给具体缺失。
+
+  # ============================================================
+  # 5) UX + COMPAT stream — command palette / shortcuts / browserslist
+  # ============================================================
+  - id: stream-ux-compat
+    title: "UX + 兼容性 — 命令面板 / 快捷键 / 跨浏览器稳定"
+    assigned_to: coder
+    max_retries: 2
+    depends_on: [foundation-contract]
+    verified_by: verifier
+    prompt: |
+      项目根:`D:\工作管理\flowsync`。foundation-contract 已完成,`useShortcut` hook + compat helpers 已在 `src/lib/`。
+
+      你拥有 UX + 兼容性这条流,只动 / 新建下列文件:
+
+      **新建**:
+      - `src/components/CommandPalette.tsx` — `Cmd/Ctrl+K` 弹出,模糊搜索任务、跳转项目、跳设置、跳任务创建。命令列表基于 foundation-contract 的 keyboard.ts 事件触发(`flowsync:command-palette-open`)
+      - `src/components/KeyboardShortcutsHelp.tsx` — `?` 弹出,显示所有快捷键列表。事件 `flowsync:shortcuts-help-open`
+      - `src/lib/hooks.ts` — `useDebouncedValue`(从 Perf 流也会用到,先建出来;如果 Perf 流已建,合并)
+      - `src/components/Toast.tsx`(可选,如已存在 react-hot-toast 包装则省略) — 用 react-hot-toast 加语义色
+
+      **修改**:
+      - `src/components/ClientProviders.tsx` — 在里面挂载 CommandPalette + KeyboardShortcutsHelp
+      - `src/app/layout.tsx` — 不动 metadata,只确保 lang / className 跟新主题一致
+      - `src/lib/pwa.ts` — 用 `lib/compat.ts` 的 `isElectron()` 跳过 PWA 注册
+      - `package.json` — 加 `browserslist` 段:`{ "production": [">0.5%", "not dead", "not op_mini all", "Chrome >=90", "Firefox >=88", "Safari >=14", "Edge >=90"] }`(只添字段,不改 dependencies / devDependencies)
+
+      **快捷键定义**(写到 `KeyboardShortcutsHelp.tsx`):
+      - `Cmd/Ctrl+K` — 命令面板
+      - `?` — 显示快捷键帮助
+      - `Cmd/Ctrl+N` — 新建任务(打开 /tasks,弹出创建入口;若 foundation-contract 没建创建 modal,先发 `flowsync:new-task-open` 事件让 Features 流监听;否则空实现)
+      - `Cmd/Ctrl+Shift+T` — 跳到任务中心
+      - `Cmd/Ctrl+Shift+P` — 跳到项目
+      - `Cmd/Ctrl+,` — 设置
+      - `Esc` — 关闭当前 modal(在 modal 内的 scope 内才生效)
+
+      **跨浏览器兼容**:
+      - `next.config.ts` 不动(那是 Perf 流)
+      - 检查所有 backdrop-blur 用法,如果 `supportsBackdropFilter()` 返回 false,降级为半透明纯色
+      - globals.css 不动(UI 流)
+
+      **约束**:
+      - 不动 SidebarNav / globals.css / 其它 page(UI 流)
+      - 不动 TaskCard / TaskTree / TagManager / TaskSplitModal(Features 流)
+      - 不动 tasks/page.tsx(Perf 流)
+      - 不动 Prisma / API routes(只读)
+      - 不引新依赖
+
+      **完工标志**:
+      - `npx tsc --noEmit` 通过
+      - `npm run build` 通过
+      - `deliverables.md` 列出所有新建/修改文件,快捷键清单
+    verify_prompt: |
+      独立核验 UX+Compat 流:
+      1. `npx tsc --noEmit` 0 错误
+      2. `npm run build` 通过
+      3. `CommandPalette.tsx` 必须存在,默认导出,props 含 `open` / `onClose`
+      4. `KeyboardShortcutsHelp.tsx` 必须存在,默认导出
+      5. `ClientProviders.tsx` 必须挂载上述两个组件
+      6. `package.json` 必须在顶层有 `browserslist` 段,且包含 `Chrome`、`Firefox`、`Safari`、`Edge`(grep 验证)
+      7. `package.json` 的 `dependencies` / `devDependencies` 字段未改(只加 browserslist)
+      8. `lib/pwa.ts` 使用 `isElectron()` 跳过 PWA 注册
+      9. 7 个快捷键都在 `KeyboardShortcutsHelp.tsx` 中可发现(grep)
+      10. 不动 SidebarNav.tsx / globals.css / TaskCard.tsx / TaskTree.tsx
+      全过 PASS。
+
+  # ============================================================
+  # 6) FINAL INTEGRATION GATE
+  # ============================================================
+  - id: final-integration-gate
+    title: "最终集成验证 — tsc + lint + build 全通过"
+    assigned_to: verifier
+    role: verify-as-task
+    max_retries: 1
+    verify_skip_reason: "任务本身即为最终 PASS/FAIL 验证门,输出是 verdict,不需要再被独立校验"
+    depends_on: [stream-ui-design, stream-features, stream-performance, stream-ux-compat]
+    prompt: |
+      独立完成最终集成验证。项目根:`D:\工作管理\flowsync`。
+
+      **执行步骤**:
+      1. `cd "D:\工作管理\flowsync"`
+      2. `npx tsc --noEmit` — 必须 0 错误
+      3. `npm run build` — 必须成功,看到 "Compiled successfully" 或同等
+      4. `npx next lint` (如果配置) — 不能有 error,可以有 warning
+      5. 抽样验证关键文件存在:
+         - `src/lib/theme.ts` 含 motion/priority/tagPalette
+         - `src/lib/task-helpers.ts` 含 5 个 helper
+         - `src/lib/keyboard.ts` 含 useShortcut / useShortcutScope
+         - `src/lib/compat.ts` 含 4 个 is* 函数
+         - `src/components/ui/` 有 Button/IconButton/Modal/Tag/EmptyState/index
+         - `src/components/CommandPalette.tsx`、`KeyboardShortcutsHelp.tsx`、`PriorityPicker.tsx`、`ReminderDialog.tsx`、`BatchActions.tsx`、`TagFilter.tsx` 都存在
+         - `src/app/tasks/_views/` 下至少 9 个视图文件
+         - `src/app/tasks/page.tsx` 行数 < 700
+      6. 验证没有以下回归:
+         - Prisma schema 未被改
+         - `src/app/api/**` 路由未被改
+         - Electron 主进程未被改
+         - `package.json` 的 dependencies / devDependencies 未被改(只加了 browserslist)
+      7. 写最终报告 `deliverables.md`:
+         - 每个流的关键产出文件清单
+         - 所有 `npx tsc --noEmit` 和 `npm run build` 的命令输出(完整粘贴)
+         - 最终 PASS/FAIL 判定
+    verify_prompt: |
+      这是最终 gate,你的 PASS/FAIL 即计划整体成功/失败:
+      - 上面的 1-7 步全过 → 输出 "FINAL: PASS" + 简短交付总结
+      - 任一失败 → 输出 "FINAL: FAIL" + 具体命令输出 / 文件缺失
+      - 不打折扣。

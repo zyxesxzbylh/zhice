@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# database files
+*.db
+*.db-journal
+prisma/dev.db
+
+# environment variables (contains secrets!)
+.env
+.env.local
+.env.*.local
+
+# Electron build output
+dist-electron/
+release/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# misc
+*.log
+.opencode/
+
+# temp files
+_*.js
+dev_error.txt
+dev_output.txt

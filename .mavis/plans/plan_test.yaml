@@ -1,0 +1,18 @@
+version: 1
+plan:
+  name: "司辰 (FlowSync) 全面优化"
+  max_concurrency: 6
+  max_consecutive_failures: 2
+  max_cycles: 12
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: foundation-contract
+    title: "抽出共享基础"
+    assigned_to: coder
+    max_retries: 1
+    prompt: "Build the shared foundation files: theme tokens, task helpers, keyboard hooks, ui primitives. See plan.yaml."
+    verified_by: verifier
+    verify_prompt: "Run tsc and build. Check files exist."

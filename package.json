@@ -1,0 +1,115 @@
+{
+  "name": "flowsync",
+  "version": "0.5.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/db/seed.ts",
+    "electron:dev": "concurrently \"next dev -p 3002\" \"wait-on http://127.0.0.1:3002 && electron .\"",
+    "electron:build": "next build && node build-electron.js && cd dist-electron && npx electron-builder",
+    "electron:build:win": "next build && node build-electron.js && cd dist-electron && npx electron-builder --win",
+    "electron:build:mac": "next build && node build-electron.js && cd dist-electron && npx electron-builder --mac",
+    "electron:build:linux": "next build && node build-electron.js && cd dist-electron && npx electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.zhice.app",
+    "productName": "执策",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "执策",
+      "installerIcon": "public/icon.png",
+      "uninstallerIcon": "public/icon.png"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@next/third-parties": "^15.3.1",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.2",
+    "better-sqlite3": "^12.11.1",
+    "critters": "^0.0.23",
+    "date-fns": "^4.2.1",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.3.1",
+    "postgres": "^3.4.9",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-hot-toast": "^2.5.2",
+    "zod": "^3.24.4",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.6",
+    "@types/node": "^20.17.46",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1",
+    "electron-serve": "^3.0.1",
+    "tailwindcss": "^4.1.6",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "wait-on": "^9.0.10"
+  },
+  "browserslist": {
+    "production": [
+      ">0.5%",
+      "not dead",
+      "not op_mini all",
+      "Chrome >=90",
+      "Firefox >=88",
+      "Safari >=14",
+      "Edge >=90"
+    ],
+    "development": [
+      "last 2 chrome versions",
+      "last 2 firefox versions",
+      "last 2 safari versions",
+      "last 2 edge versions"
+    ]
+  }
+}

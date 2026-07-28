@@ -1,0 +1,116 @@
+version: 1
+plan:
+  name: "司辰优化"
+  max_concurrency: 6
+  max_consecutive_failures: 2
+  max_cycles: 12
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: foundation-contract
+    title: "foundation"
+    assigned_to: coder
+    max_retries: 1
+    prompt: |
+      项目根目录:`D:\工作管理\flowsync`。这是 Next.js 15 + React 19 + Prisma + Tailwind v4 + Zustand + Electron 应用,代号「司辰 / FlowSync」,任务管理工具。当前 node_modules 已安装,不要重新安装。
+
+      **为什么有这个任务**:后面有 4 个并行流 (UI / Features / Perf / UX+Compat),必须先抽出共享基础,避免他们争改同一文件而出冲突。
+
+      **你的产出**(必须新建/扩展下列文件,且只在这些文件里改):
+
+      1. `src/lib/theme.ts` — 在现有基础上扩展语义 token:
+         - 新增 `motion` 段:`duration = { fast: 120, base: 200, slow: 320 }`,`easing = { standard: 'cubic-bezier(0.4,0,0.2,1)', emphasized: 'cubic-bezier(0.2,0,0,1)' }`
+         - 新增 `priority` 段(`urgent | high | medium | low`),每个含 `{ bg, border, text, accent }`(颜色自己选,统一灰阶 + 红/橙/绿/蓝点缀,跟现有"黑白灰主色 + 一点状态色"风格一致)
+         - 新增 `tagPalette = [...]`(8 种 tag 颜色,深色背景 + 白字)
+         - 保留现有导出
+         - **TypeScript 必须严格**:`export const` + `as const`
+
+      2. `src/lib/task-helpers.ts` (新) — 统一收纳散在多处的工具:
+         - 从 `src/app/tasks/page.tsx` 第 47-89 行抽出:`timeToHours`、`formatDueDate`、`hashStringToColor`、`getDateKey`、`getTaskColor`(只导出签名,实现按现有逻辑)
+         - 把 `src/components/TaskCard.tsx` 第 26-58 行的 `formatDueDate` / `getTaskColor` 替换成从 `task-helpers` 导入
+         - 把 `src/components/TaskTree.tsx` 里如果有同名函数,同样替换
+         - **重要**:不要改 `tasks/page.tsx` 里这些函数的调用点
+         - 加 JSDoc 注释,标注"由 foundation-contract 任务迁移"
+
+      3. `src/lib/keyboard.ts` (新) — 全局快捷键 hook:
+         - `useShortcut(key: string, handler: (e: KeyboardEvent) => void, options?: { scope?: string; preventDefault?: boolean }): void`
+         - `useShortcutScope(scope: string): { active: boolean; push: boolean }` — 用于嵌套 modal/dialog 的"作用域优先"
+         - 内置:`Cmd/Ctrl+K` 监听,触发自定义事件 `flowsync:command-palette-open`
+         - 内置:`?` (Shift+/) 触发 `flowsync:shortcuts-help-open`(除非用户在 input/textarea/contenteditable)
+         - SSR 安全:全部 typeof window 检查
+
+      4. `src/lib/compat.ts` (新) — 浏览器特性检测:
+         - `isSafari()`,`isFirefox()`,`isChrome()`,`isElectron()`,`isMobile()`,`isPWA()`
+         - `supportsBackdropFilter()`,`supportsCSSGrid()`,`supportsIntl()`(返回 boolean)
+         - 全部用 typeof navigator / typeof window 检查,SSR 安全
+
+      5. `src/lib/types.ts` — 扩展类型(向后兼容,不要删任何字段):
+         - 新增 `Tag`,`TaskTag`(对应 prisma)
+         - 新增 `ReminderState = 'none' | 'set' | 'sent' | 'snoozed'`
+         - 扩展 `TaskPriority = 'urgent' | 'high' | 'medium' | 'low'`
+         - 在 `Task` 接口里加 `tags?: Tag[]`、 `reminderAt?: string | null`、`recurrenceRule?: string | null`、`estimatedMinutes?: number | null`
+
+      6. `src/components/ui/` (新目录) — 共享原子组件:
+         - `Button.tsx`、`IconButton.tsx`、`Modal.tsx`、`Tag.tsx`、`EmptyState.tsx`、`index.ts`
+
+      **约束**:
+      - 不引新依赖
+      - 不动 `tasks/page.tsx` 的逻辑
+      - 不动任何 API route
+      - 不动 Prisma schema
+
+      **完工标志**:
+      - `cd "D:\工作管理\flowsync"; npx tsc --noEmit` 通过
+      - `npm run build` 通过
+    verified_by: verifier
+    verify_prompt: |
+      独立核验基础任务:
+      1. 在 `D:\工作管理\flowsync` 跑 `npx tsc --noEmit` 必须 0 错误
+      2. 跑 `npm run build` 必须 0 错误
+      3. 检查 `src/lib/theme.ts` 必须导出 motion/priority/tagPalette
+      4. 检查 `src/lib/task-helpers.ts` 必须导出 5 个 helper
+      5. `src/lib/keyboard.ts` 必须导出 useShortcut、useShortcutScope
+      6. `src/lib/compat.ts` 必须导出 isSafari/isFirefox/isChrome/isElectron
+      7. `src/lib/types.ts` 必须导出 Tag、ReminderState
+      8. `src/components/ui/` 必须有 6 个文件
+      9. 任何 worker 自己新增的依赖(改 package.json) FAIL
+      10. `tasks/page.tsx` 逻辑没被改
+
+  - id: stream-ui-design
+    title: "UI设计"
+    assigned_to: coder
+    max_retries: 2
+    depends_on: [foundation-contract]
+    verified_by: verifier
+    prompt: |
+      项目根:`D:\工作管理\flowsync`。依赖:foundation-contract 已完成。
+      UI视觉层次流,只动下列文件:
+      - `src/components/SidebarNav.tsx`
+      - `src/components/MobileNav.tsx`
+      - `src/components/EmptyState.tsx`
+      - `src/components/Skeleton.tsx`
+      - `src/app/globals.css`
+      - `src/components/NotificationBell.tsx`
+      - `src/app/dashboard/page.tsx`
+      - `src/app/projects/page.tsx`
+      - `src/app/templates/page.tsx`
+      - `src/app/schedule/page.tsx`
+      - `src/app/settings/page.tsx`
+
+      **目标**:SidebarNav 加版本号、统一分组标题、激活项改 bg-gray-50、EmptyState 改用 ui/EmptyState、Skeleton 用 shimmer 动画、globals.css 删除未用的 monochrome/silver 类、5 个 page 统一 h1 字号和卡片样式
+
+      **约束**:不动 tasks/page.tsx、不动 src/lib/*、不动 Prisma、不动 TaskCard.tsx、不动 src/components/ui/* 内部、不引新依赖
+
+      **完工标志**:`npx tsc --noEmit` + `npm run build` 通过
+    verify_prompt: |
+      独立核验 UI 流:
+      1. `npx tsc --noEmit` 0 错误
+      2. `npm run build` 通过
+      3. globals.css 不再有 monochrome/silver 字样
+      4. SidebarNav.tsx 仍导出默认组件
+      5. EmptyState.tsx 从 ui/ 导入
+      6. tasks page 未被此流改动
+      7. 无 package.json 改动
+      8. SidebarNav 的 active 项用 bg-gray-50 不是 bg-gray-100

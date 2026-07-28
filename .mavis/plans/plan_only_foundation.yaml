@@ -1,0 +1,94 @@
+﻿version: 1
+plan:
+  name: "鍙歌景 (FlowSync) 鍏ㄩ潰浼樺寲"
+  max_concurrency: 6
+  max_consecutive_failures: 2
+  max_cycles: 12
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  # ============================================================
+  # 1) CONTRACT 鈥?shared foundations so 4 parallel streams don't collide
+  # ============================================================
+  - id: foundation-contract
+    title: "鎶藉嚭鍏变韩鍩虹锛堣璁?token / helper / 閿洏 hook / UI primitives锛?
+    assigned_to: coder
+    max_retries: 1
+    prompt: |
+      椤圭洰鏍圭洰褰?`D:\宸ヤ綔绠＄悊\flowsync`銆傝繖鏄?Next.js 15 + React 19 + Prisma + Tailwind v4 + Zustand + Electron 搴旂敤,浠ｅ彿銆屽徃杈?/ FlowSync銆?浠诲姟绠＄悊宸ュ叿銆傚綋鍓?node_modules 宸插畨瑁?涓嶈閲嶆柊瀹夎銆?
+      **涓轰粈涔堟湁杩欎釜浠诲姟**:鍚庨潰鏈?4 涓苟琛屾祦 (UI / Features / Perf / UX+Compat),蹇呴』鍏堟娊鍑哄叡浜熀纭€,閬垮厤浠栦滑浜夋敼鍚屼竴鏂囦欢鑰屽嚭鍐茬獊銆?
+      **浣犵殑浜у嚭**(蹇呴』鏂板缓/鎵╁睍涓嬪垪鏂囦欢,涓斿彧鍦ㄨ繖浜涙枃浠堕噷鏀?:
+
+      1. `src/lib/theme.ts` 鈥?鍦ㄧ幇鏈夊熀纭€涓婃墿灞曡涔?token:
+         - 鏂板 `motion` 娈?`duration = { fast: 120, base: 200, slow: 320 }`,`easing = { standard: 'cubic-bezier(0.4,0,0.2,1)', emphasized: 'cubic-bezier(0.2,0,0,1)' }`
+         - 鏂板 `priority` 娈?`urgent | high | medium | low`),姣忎釜鍚?`{ bg, border, text, accent }`(棰滆壊鑷繁閫?缁熶竴鐏伴樁 + 绾?姗?缁?钃濈偣缂€,璺熺幇鏈?榛戠櫧鐏颁富鑹?+ 涓€鐐圭姸鎬佽壊"椋庢牸涓€鑷?
+         - 鏂板 `tagPalette = [...]`(8 绉?tag 棰滆壊,娣辫壊鑳屾櫙 + 鐧藉瓧)
+         - 淇濈暀鐜版湁瀵煎嚭
+         - **TypeScript 蹇呴』涓ユ牸**:`export const` + `as const`
+
+      2. `src/lib/task-helpers.ts` (鏂? 鈥?缁熶竴鏀剁撼鏁ｅ湪澶氬鐨勫伐鍏?
+         - 浠?`src/app/tasks/page.tsx` 绗?47-89 琛屾娊鍑?`timeToHours`銆乣formatDueDate`銆乣hashStringToColor`銆乣getDateKey`銆乣getTaskColor`(鍙鍑虹鍚?瀹炵幇鎸夌幇鏈夐€昏緫)
+         - 鎶?`src/components/TaskCard.tsx` 绗?26-58 琛岀殑 `formatDueDate` / `getTaskColor` 鏇挎崲鎴愪粠 `task-helpers` 瀵煎叆
+         - 鎶?`src/components/TaskTree.tsx` 閲屽鏋滄湁鍚屽悕鍑芥暟,鍚屾牱鏇挎崲(璇诲悗鎸夐渶鏀?
+         - **閲嶈**:涓嶈鏀?`tasks/page.tsx` 閲岃繖浜涘嚱鏁扮殑璋冪敤鐐?鍏堟妸鍑芥暟鎼繃鏉?瀵煎嚭鍚屽悕,鍚庣画 Perf 娴佷細娓呯悊璋冪敤鐐?         - 鍔?JSDoc 娉ㄩ噴,鏍囨敞"鐢?foundation-contract 浠诲姟杩佺Щ"
+
+      3. `src/lib/keyboard.ts` (鏂? 鈥?鍏ㄥ眬蹇嵎閿?hook:
+         - `useShortcut(key: string, handler: (e: KeyboardEvent) => void, options?: { scope?: string; preventDefault?: boolean }): void`
+         - `useShortcutScope(scope: string): { active: boolean; push: boolean }` 鈥?鐢ㄤ簬宓屽 modal/dialog 鐨?浣滅敤鍩熶紭鍏?
+         - 鍐呯疆:`Cmd/Ctrl+K` 鐩戝惉,瑙﹀彂鑷畾涔変簨浠?`flowsync:command-palette-open`
+         - 鍐呯疆:`?` (Shift+/) 瑙﹀彂 `flowsync:shortcuts-help-open`(闄ら潪鐢ㄦ埛鍦?input/textarea/contenteditable)
+         - SSR 瀹夊叏:鍏ㄩ儴 typeof window 妫€鏌?
+      4. `src/lib/compat.ts` (鏂? 鈥?娴忚鍣ㄧ壒鎬ф娴?
+         - `isSafari()`,`isFirefox()`,`isChrome()`,`isElectron()`,`isMobile()`,`isPWA()`
+         - `supportsBackdropFilter()`,`supportsCSSGrid()`,`supportsIntl()`(杩斿洖 boolean)
+         - 鍏ㄩ儴鐢?typeof navigator / typeof window 妫€鏌?SSR 瀹夊叏
+
+      5. `src/lib/types.ts` 鈥?鎵╁睍绫诲瀷(鍚戝悗鍏煎,涓嶈鍒犱换浣曞瓧娈?:
+         - 鏂板 `Tag`,`TaskTag`(瀵瑰簲 prisma)
+         - 鏂板 `ReminderState = 'none' | 'set' | 'sent' | 'snoozed'`
+         - 鎵╁睍 `TaskPriority = 'urgent' | 'high' | 'medium' | 'low'`(娉ㄦ剰:DB 鏄瓧绗︿覆,鍓嶇涔熻鐢ㄥ瓧绗︿覆,璺?`lib/theme.ts` 鐨?priority 娈靛榻?
+         - 鍦?`Task` 鎺ュ彛閲屽姞 `tags?: Tag[]`銆?`reminderAt?: string | null`銆乣recurrenceRule?: string | null`銆乣estimatedMinutes?: number | null`(閮界敤 optional,涓嶇牬鍧忕幇鏈?
+
+      6. `src/components/ui/` (鏂扮洰褰? 鈥?鍏变韩鍘熷瓙缁勪欢,姣忎釜鏂囦欢鐙珛:
+         - `Button.tsx` 鈥?variants: primary / secondary / ghost / danger;sizes: sm / md;鏀寔 `loading` 鐘舵€?绠€鍗?spinner);Tailwind class
+         - `IconButton.tsx` 鈥?甯?hover/focus/active 鍙嶉鐨勬柟褰㈡寜閽?鎺ュ彈 `aria-label`
+         - `Modal.tsx` 鈥?鍙楁帶 `open`,Esc 鍏抽棴,鐐瑰嚮閬僵鍏抽棴(鍙€?,`aria-modal` + `role="dialog"` + focus trap(鑷繁鍐欒交閲?涓嶈寮曞閮ㄥ簱)
+         - `Tag.tsx` 鈥?鍦嗚灏忚壊鍧?鎺ュ彈 `color` / `children` / `onRemove?`
+         - `EmptyState.tsx` 鈥?鍗犱綅缁勪欢,鎺ュ彈 `icon?` / `title` / `description` / `action?`
+         - `index.ts` 鈥?barrel export 浠ヤ笂鎵€鏈塱nko
+
+      **绾︽潫**:
+      - TypeScript 涓ユ牸妯″紡,浠讳綍 `any` 蹇呴』鏈夋敞閲婅鏄?      - 涓嶅紩鏂颁緷璧?鍙敤 React 19 + Tailwind v4 + 鐜版湁宸ュ叿
+      - 涓嶅姩 `tasks/page.tsx` 鐨勯€昏緫(閭ｆ槸 Perf 娴佺殑浜?
+      - 涓嶅姩浠讳綍 API route(`src/app/api/**`)
+      - 涓嶅姩 Prisma schema
+      - 鎵€鏈夊姩鐢诲湪 `globals.css` 宸茬粡瀛樺湪鐨?keyframes 鑼冨洿閲屾寫,鍒柊澧?
+      **瀹屽伐鏍囧織**:
+      - `cd "D:\宸ヤ綔绠＄悊\flowsync"; npx tsc --noEmit` 閫氳繃
+      - `npm run build` 閫氳繃
+      - 鍦?`deliverables.md` 閲屽垪:姣忎釜鏂板缓/淇敼鐨勬枃浠惰矾寰勩€佹瘡涓鍑虹鍙风殑绛惧悕銆佽縼绉讳簡鍝簺鑰佸嚱鏁板埌 `task-helpers`
+    verified_by: verifier
+    verify_prompt: |
+      鐙珛鏍搁獙鍩虹浠诲姟:
+      1. 鍦?`D:\宸ヤ綔绠＄悊\flowsync` 璺?`npx tsc --noEmit` 蹇呴』 0 閿欒
+      2. 璺?`npm run build` 蹇呴』 0 閿欒(鐪嬪埌 "Compiled successfully" 鎴栧悓绛夋垚鍔熸秷鎭?
+      3. 妫€鏌?`src/lib/theme.ts` 蹇呴』瀵煎嚭 `motion`/`priority`/`tagPalette`(绫诲瀷 + 鍊?
+      4. 妫€鏌?`src/lib/task-helpers.ts` 蹇呴』瀵煎嚭 `timeToHours`/`formatDueDate`/`hashStringToColor`/`getDateKey`/`getTaskColor`
+      5. `src/lib/keyboard.ts` 蹇呴』瀵煎嚭 `useShortcut`銆乣useShortcutScope`,骞跺湪妯″潡浣滅敤鍩熻Е鍙戣嚜瀹氫箟浜嬩欢 `flowsync:command-palette-open`(鐢ㄥ瓧绗︿覆鐩戝惉鍣ㄦ祴璇?
+      6. `src/lib/compat.ts` 蹇呴』瀵煎嚭 `isSafari`/`isFirefox`/`isChrome`/`isElectron`
+      7. `src/lib/types.ts` 蹇呴』瀵煎嚭 `Tag`銆乣ReminderState`,`TaskPriority` 蹇呴』鏄?4 鍊艰仈鍚?      8. `src/components/ui/` 蹇呴』鏈?Button/IconButton/Modal/Tag/EmptyState/index 鍏釜鏂囦欢,index.ts barrel export 鍏ㄩ儴
+      9. 浠讳綍 worker 鑷繁鏂板鐨勪緷璧?鏀?package.json) 鈫?FAIL
+      10. `tasks/page.tsx` 閫昏緫娌¤鏀?鍙互 diff 涓€涓?
+      PASS/FAIL 鏍囧噯:浠ヤ笂 10 鏉″叏杩囨墠鑳?PASS,浠讳竴澶辫触缁欏嚭鍏蜂綋鐨勫懡浠よ緭鍑烘垨缂哄け鏂囦欢璺緞銆?    output: "鑷冲皯 6 涓柊/鎵╁睍鏂囦欢: src/lib/{theme,task-helpers,keyboard,compat,types}.ts + src/components/ui/ 鐩綍"
+
+  # ============================================================
+  # 2) UI / VISUAL HIERARCHY stream
+  # ============================================================
+  - id: stream-ui-design
+    title: "鐣岄潰璁捐浼樺寲 鈥?瑙嗚灞傛銆佷俊鎭竷灞€銆佷氦浜掑弽棣?
+    assigned_to: coder
+    max_retries: 2
+
+
